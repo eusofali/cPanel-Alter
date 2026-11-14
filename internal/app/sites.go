@@ -117,7 +117,7 @@ func renderVhost(s Site) (string, error) {
 	}
 	err := vhostTmpl.Execute(&buf, map[string]any{
 		"Proxied": s.Type == "proxy" || s.isApp(), "IPv6": hasIPv6(),
-		"Domain":  s.Domain, "Names": strings.Join(append([]string{s.Domain}, s.Aliases...), " "),
+		"Domain": s.Domain, "Names": strings.Join(append([]string{s.Domain}, s.Aliases...), " "),
 		"Type": s.Type, "PHP": s.PHP, "Proxy": proxy, "SSL": s.SSL, "ForceHTTPS": s.ForceHTTPS,
 		"Sock": poolSock(s.ID), "Docroot": docroot(s.Domain), "ACME": acmeRoot, "Live": leLiveRoot,
 	})
