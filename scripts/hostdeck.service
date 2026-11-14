@@ -1,0 +1,23 @@
+[Unit]
+Description=hostdeck hosting control panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/hostdeck -data /var/lib/hostdeck -listen :8443
+Restart=on-failure
+RestartSec=3
+# Keeps the Go runtime small on low-memory servers.
+Environment=GOMEMLIMIT=64MiB
+MemoryHigh=128M
+LimitNOFILE=4096
+# The panel must edit /etc and /var/www and run apt, so it cannot be fully
+# sandboxed; these still remove what it never needs.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
