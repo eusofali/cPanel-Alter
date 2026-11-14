@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -80,8 +81,8 @@ var vhostTmpl = template.Must(template.New("vhost").Parse(`# Managed by hmea-pan
     }
 {{end}}{{end}}server {
     listen 80;
-    listen [::]:80;
-{{if and .SSL .ForceHTTPS}}    server_name {{.Names}};
+{{if .IPv6}}    listen [::]:80;
+{{end}}{{if and .SSL .ForceHTTPS}}    server_name {{.Names}};
 
     location ^~ /.well-known/acme-challenge/ {
         root {{.ACME}};
@@ -94,12 +95,19 @@ var vhostTmpl = template.Must(template.New("vhost").Parse(`# Managed by hmea-pan
 {{if .SSL}}
 server {
     listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    ssl_certificate     {{.Live}}/{{.Domain}}/fullchain.pem;
+{{if .IPv6}}    listen [::]:443 ssl http2;
+{{end}}    ssl_certificate     {{.Live}}/{{.Domain}}/fullchain.pem;
     ssl_certificate_key {{.Live}}/{{.Domain}}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 {{template "body" .}}}
 {{end}}`))
+
+// hasIPv6 reports whether the kernel has IPv6 at all; Nginx refuses to
+// start with an IPv6 listener on servers where it is switched off.
+var hasIPv6 = func() bool {
+	_, err := os.Stat("/proc/net/if_inet6")
+	return err == nil
+}
 
 func renderVhost(s Site) (string, error) {
 	var buf bytes.Buffer
@@ -108,7 +116,7 @@ func renderVhost(s Site) (string, error) {
 		proxy = fmt.Sprintf("http://127.0.0.1:%d", s.Port)
 	}
 	err := vhostTmpl.Execute(&buf, map[string]any{
-		"Proxied": s.Type == "proxy" || s.isApp(),
+		"Proxied": s.Type == "proxy" || s.isApp(), "IPv6": hasIPv6(),
 		"Domain":  s.Domain, "Names": strings.Join(append([]string{s.Domain}, s.Aliases...), " "),
 		"Type": s.Type, "PHP": s.PHP, "Proxy": proxy, "SSL": s.SSL, "ForceHTTPS": s.ForceHTTPS,
 		"Sock": poolSock(s.ID), "Docroot": docroot(s.Domain), "ACME": acmeRoot, "Live": leLiveRoot,

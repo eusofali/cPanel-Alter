@@ -79,10 +79,12 @@ server_tokens off;
 include /etc/nginx/hmea-panel/sites/*.conf;
 CONF
 # Requests for names no site claims get no answer instead of the first site.
-cat > /etc/nginx/sites-available/default <<'CONF'
+V6_LISTEN=""
+[ -e /proc/net/if_inet6 ] && V6_LISTEN="listen [::]:80 default_server;"
+cat > /etc/nginx/sites-available/default <<CONF
 server {
     listen 80 default_server;
-    listen [::]:80 default_server;
+    $V6_LISTEN
     server_name _;
     location ^~ /.well-known/acme-challenge/ { root /var/www/_letsencrypt; }
     location / { return 444; }
