@@ -1,11 +1,11 @@
-# hostdeck
+# HMEA Panel
 
 A lightweight web hosting control panel for Ubuntu 22.04/24.04 and Debian 12:
 one Go binary (about 13 MB on disk, under 20 MB of RAM when idle) with an
 embedded React UI and a SQLite database. No PHP, Perl or database server is
 needed for the panel itself.
 
-![hostdeck home screen](docs/images/home.png)
+![hmea-panel home screen](docs/images/home.png)
 
 | Area | What it manages | Backed by |
 | --- | --- | --- |
@@ -14,6 +14,8 @@ needed for the panel itself.
 | HTTPS | Free certificates, HTTP→HTTPS redirect, automatic renewal | certbot (Let's Encrypt) |
 | PHP | A version per site, install/remove any extension apt offers, plus sodium (built in) and the SourceGuardian loader | PHP-FPM, apt |
 | Databases | Databases, users, passwords, grants, sizes | MariaDB |
+| Backups | Full-server, per-site and per-database backups; scheduled backups with retention; restore; download | tar, mariadb-dump |
+| Cron jobs | Scheduled commands, run as the web user | cron |
 | Files | Browse, upload, edit, rename, delete, download under `/var/www` | built in |
 | FTP | Accounts locked to one folder, TLS required | Pure-FTPd |
 | Email | Mail domains, mailboxes with quota, forwarders, catch-all | Postfix, Dovecot |
@@ -31,27 +33,28 @@ logged. The generated admin password is in `data/initial-password.txt`.
 
 ## Install on a server
 
-**Full step-by-step guide: [docs/INSTALL.md](docs/INSTALL.md).** In short:
-
-Use a fresh VPS. The installer reconfigures Nginx, MariaDB, Postfix, Dovecot,
-Pure-FTPd, BIND and the firewall.
+On a **fresh** Ubuntu 22.04/24.04 or Debian 12 VPS, as root:
 
 ```bash
-make build
+apt -y install git && git clone https://github.com/eusofali/cPanel-Alter.git /opt/hmea-panel && bash /opt/hmea-panel/install.sh
 ```
+
+It builds the panel, installs and configures the server software, and
+prints the panel address (`https://SERVER:8443`) and the initial admin
+password. Options go at the end: `--no-mail`, `--no-dns`, `--no-ftp`,
+`--no-apps`, `--no-firewall`, `--php-repo` (more PHP versions and
+extensions).
+
+**Full step-by-step guide: [docs/INSTALL.md](docs/INSTALL.md).**
+
+Update later with:
 
 ```bash
-sudo scripts/install.sh
+bash /opt/hmea-panel/update.sh
 ```
 
-Options: `--no-mail`, `--no-dns`, `--no-ftp`, `--no-apps` (skip what you do not need; on a
-512 MB server skip mail), `--no-firewall`, and `--php-repo` (adds the Ondrej
-Sury repository for several PHP versions side by side and more extensions).
-
-The panel listens on `https://SERVER:8443` with a self-signed certificate.
-To use a real one, pass `-tls-cert` and `-tls-key` in
-`/etc/systemd/system/hostdeck.service`. Reset a lost password with
-`sudo hostdeck set-password`.
+Lost password: `hmea-panel set-password`. Lost authenticator:
+`hmea-panel disable-2fa`.
 
 ## Built for small servers
 
@@ -63,6 +66,7 @@ To use a real one, pass `-tls-cert` and `-tls-key` in
 
 ## Security model
 
+- Optional two-factor sign-in (TOTP authenticator apps).
 - One admin account: bcrypt password, 12-hour sessions stored hashed,
   `HttpOnly` + `SameSite=Strict` cookies, login throttling per IP, CSRF
   header check, strict Content-Security-Policy, TLS by default.
@@ -83,9 +87,13 @@ To use a real one, pass `-tls-cert` and `-tls-key` in
 
 Known limits: the panel runs as root (it has to edit system config), all
 sites run as `www-data` (isolation is `open_basedir`, not separate Unix
-users), there is no two-factor login yet, and no DKIM signing or spam
+users), and there is no DKIM signing or spam
 filtering for mail. Restrict port 8443 to your own IP if you can:
 `sudo ufw delete allow 8443/tcp` then `sudo ufw allow from YOUR_IP to any port 8443 proto tcp`.
+
+## Screens
+
+![Backups](docs/images/backups.png)
 
 ## Development
 
@@ -93,6 +101,6 @@ filtering for mail. Restrict port 8443 to your own IP if you can:
 make test
 ```
 
-Layout: `cmd/hostdeck` (entry point), `internal/app` (API and services, one
+Layout: `cmd/hmea-panel` (entry point), `internal/app` (API and services, one
 file per area), `internal/sys` (the only code that touches the host),
 `web` (React UI), `scripts` (installer, systemd unit).

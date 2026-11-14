@@ -1,4 +1,4 @@
-// Package app implements the hostdeck HTTP API and the services behind it.
+// Package app implements the hmea-panel HTTP API and the services behind it.
 package app
 
 import (
@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"hostdeck/internal/sys"
+	"hmeapanel/internal/sys"
 )
 
 const WebRoot = "/var/www"
@@ -30,6 +30,8 @@ type App struct {
 	loginMu  sync.Mutex
 	failures map[string][]time.Time
 	devExt   map[string]bool // simulated installed extensions in dev mode
+	jobMu    sync.Mutex
+	jobBusy  bool // a backup or restore is running
 }
 
 type HTTPError struct {
@@ -82,7 +84,7 @@ func (a *App) wrap(public bool, fn handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A custom header cannot be sent cross-site without a CORS preflight,
 		// which we never approve; this blocks CSRF on state-changing requests.
-		if r.Method != http.MethodGet && r.Header.Get("X-Requested-With") != "hostdeck" {
+		if r.Method != http.MethodGet && r.Header.Get("X-Requested-With") != "hmea-panel" {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "missing X-Requested-With header"})
 			return
 		}
@@ -127,6 +129,25 @@ func (a *App) Handler() http.Handler {
 	api("POST /api/sites/{id}/app/restart", a.restartApp)
 	api("POST /api/sites/{id}/app/install", a.installAppDeps)
 	api("GET /api/sites/{id}/app/logs", a.appLogs)
+
+	api("GET /api/sites/{id}/logs", a.siteLogs)
+
+	api("GET /api/backups", a.listBackups)
+	api("POST /api/backups", a.createBackup)
+	api("PUT /api/backups/schedule", a.setBackupSchedule)
+	api("POST /api/backups/{id}/restore", a.restoreBackup)
+	api("GET /api/backups/{id}/download", a.downloadBackup)
+	api("DELETE /api/backups/{id}", a.deleteBackup)
+
+	api("GET /api/cron", a.listCron)
+	api("POST /api/cron", a.createCron)
+	api("PUT /api/cron/{id}", a.updateCron)
+	api("DELETE /api/cron/{id}", a.deleteCron)
+
+	api("GET /api/2fa", a.twoFactorStatus)
+	api("POST /api/2fa/setup", a.twoFactorSetup)
+	api("POST /api/2fa/enable", a.twoFactorEnable)
+	api("POST /api/2fa/disable", a.twoFactorDisable)
 
 	api("GET /api/php", a.listPHP)
 	api("POST /api/php/{version}/extensions", a.setPHPExtension)

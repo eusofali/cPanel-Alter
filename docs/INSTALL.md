@@ -1,4 +1,4 @@
-# Installing hostdeck on a VPS, step by step
+# Installing HMEA Panel on a VPS, step by step
 
 This guide takes a new VPS from first login to a working panel with a
 website, HTTPS, a database, email and DNS.
@@ -6,7 +6,7 @@ website, HTTPS, a database, email and DNS.
 > **Status.** The panel and installer have been tested in simulation only,
 > not yet on a live server. Do the first install on a fresh VPS you can
 > rebuild, and expect to adjust a step or two. If something fails, the
-> [Troubleshooting](#14-troubleshooting) section shows where to look.
+> Troubleshooting section shows where to look.
 
 ## 1. What you need
 
@@ -43,58 +43,28 @@ Give the server a full host name (used by mail and certificates):
 hostnamectl set-hostname server.example.com
 ```
 
-## 3. Add swap on small servers
-
-Building the panel needs more memory than a 1 GB server has free. If
-`free -m` shows no swap, add 2 GB first:
+## 3. Install with one command
 
 ```bash
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab
+apt -y install git && git clone https://github.com/eusofali/cPanel-Alter.git /opt/hmea-panel && bash /opt/hmea-panel/install.sh
 ```
 
-## 4. Install the build tools
+That single command:
 
-Git and Make:
+1. downloads HMEA Panel to `/opt/hmea-panel`,
+2. adds swap if the server has little memory,
+3. installs the build tools (Go and Node.js) and builds the panel, which
+   takes a few minutes on a small server,
+4. installs and configures Nginx, PHP-FPM, MariaDB, mail, FTP, DNS, Node.js
+   and Python, sized to your server's memory,
+5. opens only the needed firewall ports (keeping your SSH port) and turns
+   on fail2ban,
+6. starts HMEA Panel as a service that also starts after every reboot.
 
-```bash
-apt -y install git make curl ca-certificates gnupg
-```
+When it finishes it prints the panel address and the **initial admin
+password**. Write it down.
 
-Go (the current release, from go.dev; this picks the right file for x86 or ARM):
-
-```bash
-GO_VERSION=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1) && ARCH=$(dpkg --print-architecture) && curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz && ln -sf /usr/local/go/bin/go /usr/local/bin/go && go version
-```
-
-Node.js 22 (builds the web interface, and later runs your Node.js sites):
-
-```bash
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/nodesource.gpg && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && apt update && apt -y install nodejs && node --version
-```
-
-## 5. Download and build hostdeck
-
-```bash
-git clone https://github.com/eusofali/cPanel-Alter.git /opt/hostdeck
-```
-
-```bash
-cd /opt/hostdeck && make build
-```
-
-The first build downloads dependencies and takes a few minutes on a small
-server. It finishes by creating `bin/hostdeck`.
-
-*Alternative for very small servers:* run `make build` on your own Linux
-computer (or `GOOS=linux GOARCH=amd64 make build` on a Mac), copy the whole
-project folder to `/opt/hostdeck` on the server with `scp -r`, and skip the
-Go and Node.js installs above.
-
-## 6. Run the installer
-
-```bash
-cd /opt/hostdeck && ./scripts/install.sh
-```
+### Options
 
 Add options to leave parts out or to get more PHP versions:
 
@@ -107,37 +77,40 @@ Add options to leave parts out or to get more PHP versions:
 | `--no-firewall` | Do not touch ufw or fail2ban. |
 | `--php-repo` | Add the Ondrej Sury PHP repository so several PHP versions (7.4 to the newest) and more extensions are installable. Recommended. |
 
-For example, a typical small site server with DNS at the registrar:
+Put options at the end of the command. For example, a typical small site
+server whose DNS stays at the registrar:
 
 ```bash
-cd /opt/hostdeck && ./scripts/install.sh --no-dns --php-repo
+apt -y install git && git clone https://github.com/eusofali/cPanel-Alter.git /opt/hmea-panel && bash /opt/hmea-panel/install.sh --no-dns --php-repo
 ```
 
-What the installer does, in order: adds swap if memory is low; installs the
-packages; configures Nginx, PHP-FPM, MariaDB (sized to your RAM), mail, FTP
-and DNS; opens only the needed firewall ports (keeping your SSH port);
-enables fail2ban; installs hostdeck as a systemd service.
+The installer is safe to run again, for example to add a part you left out:
 
-When it finishes it prints the panel address and the **initial admin
-password**. Write it down.
+```bash
+bash /opt/hmea-panel/install.sh --php-repo
+```
 
-## 7. First sign-in
+## 4. First sign-in
 
 1. Open `https://203.0.113.10:8443` in your browser.
 2. The browser warns about the certificate because it is self-signed.
-   Choose *Advanced* → *Proceed*. (Step 13 replaces it with a real one.)
+   Choose *Advanced* → *Proceed*. (The section "A real certificate for the panel" below replaces it.)
 3. Sign in with the initial password.
 4. Go to **Settings** and:
    - set **Admin email** (required before HTTPS certificates can be issued),
    - set **Server IPv4 address**,
-   - change the admin password.
+   - change the admin password,
+   - turn on **Two-factor sign-in**: click *Set up*, scan the QR code with
+     an authenticator app (Google Authenticator, Authy, 1Password, …) and
+     enter the 6-digit code. If you ever lose the phone, run
+     `hmea-panel disable-2fa` on the server.
 5. Back on the server, remove the saved initial password:
 
 ```bash
-rm /var/lib/hostdeck/initial-password.txt
+rm /var/lib/hmea-panel/initial-password.txt
 ```
 
-## 8. Add your first website
+## 5. Add your first website
 
 1. At your DNS provider, create two `A` records pointing to the server:
    `example.com` → `203.0.113.10` and `www.example.com` → `203.0.113.10`.
@@ -146,16 +119,16 @@ rm /var/lib/hostdeck/initial-password.txt
 3. Enter the domain and choose the type:
    - **PHP application** (WordPress, Laravel, …) and a PHP version,
    - **Static files**,
-   - **Node.js app** or **Python app** (see step 9),
+   - **Node.js app** or **Python app** (see the next section),
    - **Reverse proxy** to a service you run yourself.
 4. Click **Create website**. `http://example.com` now shows a placeholder.
 5. Click **Enable HTTPS** on the site's row. A free Let's Encrypt
    certificate is issued and HTTP is redirected to HTTPS. Renewal is
    automatic.
 6. Upload your files with **Files** (the site's folder is
-   `/var/www/example.com/public_html`) or with FTP (step 11).
+   `/var/www/example.com/public_html`) or with FTP.
 
-## 9. Node.js and Python apps
+## 6. Node.js and Python apps
 
 Each app runs as its own background service and restarts automatically if
 it crashes or the server reboots.
@@ -183,7 +156,7 @@ it crashes or the server reboots.
 Each app is limited to 512 MB of memory and can only write inside its own
 site folder. After changing code, click **App** → **Restart app**.
 
-## 10. Databases and PHP extensions
+## 7. Databases and PHP extensions
 
 **Database**
 
@@ -208,7 +181,7 @@ everything your server's package sources offer; run the installer with
   the panel tells you if so. The firewall must allow outgoing HTTPS (it
   does by default).
 
-## 11. FTP accounts
+## 8. FTP accounts
 
 1. **FTP Accounts** → **Add account**, choose a user name, generate a
    password, and pick the home folder (for example `/example.com`).
@@ -216,7 +189,7 @@ everything your server's package sources offer; run the installer with
    port 21, encryption **"Require explicit FTP over TLS"**, and accept the
    certificate the first time.
 
-## 12. Email and DNS
+## 9. Email and DNS
 
 **DNS records for mail** (at your DNS provider, or in the panel's Zone
 Editor if you use it):
@@ -250,7 +223,7 @@ warn once. There is no spam filter or DKIM signing yet.
    servers"), then set them as the domain's name servers.
 3. Changes can take up to a day to be seen everywhere.
 
-## 13. A real certificate for the panel (recommended)
+## 10. A real certificate for the panel (recommended)
 
 1. Create an `A` record `panel.example.com` → `203.0.113.10` and wait for
    it to resolve.
@@ -260,16 +233,16 @@ warn once. There is no spam filter or DKIM signing yet.
 certbot certonly --webroot -w /var/www/_letsencrypt -d panel.example.com --agree-tos -m you@example.com --non-interactive
 ```
 
-3. Tell hostdeck to use it:
+3. Tell HMEA Panel to use it:
 
 ```bash
-sed -i 's|^ExecStart=.*|ExecStart=/usr/local/bin/hostdeck -data /var/lib/hostdeck -listen :8443 -tls-cert /etc/letsencrypt/live/panel.example.com/fullchain.pem -tls-key /etc/letsencrypt/live/panel.example.com/privkey.pem|' /etc/systemd/system/hostdeck.service && systemctl daemon-reload && systemctl restart hostdeck
+sed -i 's|^ExecStart=.*|ExecStart=/usr/local/bin/hmea-panel -data /var/lib/hmea-panel -listen :8443 -tls-cert /etc/letsencrypt/live/panel.example.com/fullchain.pem -tls-key /etc/letsencrypt/live/panel.example.com/privkey.pem|' /etc/systemd/system/hmea-panel.service && systemctl daemon-reload && systemctl restart hmea-panel
 ```
 
 4. Make the panel pick up renewed certificates:
 
 ```bash
-printf '#!/bin/sh\nsystemctl restart hostdeck\n' > /etc/letsencrypt/renewal-hooks/deploy/hostdeck-panel.sh && chmod +x /etc/letsencrypt/renewal-hooks/deploy/hostdeck-panel.sh
+printf '#!/bin/sh\nsystemctl restart hmea-panel\n' > /etc/letsencrypt/renewal-hooks/deploy/hmea-panel-panel.sh && chmod +x /etc/letsencrypt/renewal-hooks/deploy/hmea-panel-panel.sh
 ```
 
 Now use `https://panel.example.com:8443`.
@@ -280,12 +253,12 @@ Now use `https://panel.example.com:8443`.
 ufw delete allow 8443/tcp && ufw allow from YOUR.HOME.IP.ADDRESS to any port 8443 proto tcp
 ```
 
-## 14. Troubleshooting
+## 11. Troubleshooting
 
 | Problem | What to check |
 | --- | --- |
-| Panel does not open | `systemctl status hostdeck` and `journalctl -u hostdeck -n 50`. Check the firewall: `ufw status` must list 8443. Some providers also have a cloud firewall in their dashboard. |
-| Forgot the admin password | `hostdeck set-password` on the server. |
+| Panel does not open | `systemctl status hmea-panel` and `journalctl -u hmea-panel -n 50`. Check the firewall: `ufw status` must list 8443. Some providers also have a cloud firewall in their dashboard. |
+| Forgot the admin password | `hmea-panel set-password` on the server. |
 | "Enable HTTPS" fails | The domain (and every alias) must already point to this server, and port 80 must be reachable. Admin email must be set in Settings. Details: `/var/log/letsencrypt/letsencrypt.log`. |
 | Site shows 502 | PHP site: `systemctl status php8.3-fpm`. Node/Python site: **App** → **Recent logs**, usually a crash on start or the app not listening on `PORT`. |
 | A change is rejected with "nginx rejected the configuration" | The panel rolled the change back. Run `nginx -t` to see the conflicting line, often a leftover file in `/etc/nginx/sites-enabled`. |
@@ -298,35 +271,67 @@ Useful locations:
 
 | What | Where |
 | --- | --- |
-| Panel data (database, certificate) | `/var/lib/hostdeck` |
+| Panel data (database, certificate) | `/var/lib/hmea-panel` |
 | Website files | `/var/www/<domain>` |
-| Site Nginx configs | `/etc/nginx/hostdeck/sites` |
+| Site Nginx configs | `/etc/nginx/hmea-panel/sites` |
 | Site logs | `/var/log/nginx/<domain>.access.log` and `.error.log` |
-| App services | `systemctl status hostdeck-site<ID>` |
+| App services | `systemctl status hmea-site<ID>` |
 
-## 15. Backups
+## 12. Backups, restore and scheduled tasks
 
-hostdeck does not make backups yet. At minimum, copy these off the server
-regularly: `/var/www`, `/var/lib/hostdeck`, `/var/mail/vhosts`, and a
-database dump:
+**Create a backup:** **Backups** → **Create backup**, then choose:
+
+| Type | Contains |
+| --- | --- |
+| Full server | Every website folder, a dump of every database, all mailboxes, and a copy of the panel's own database |
+| One website | That site's folder under `/var/www` |
+| One database | A compressed SQL dump |
+
+Backups run in the background and are stored in `/var/backups/hmea-panel`.
+Use **Download** to keep a copy on your computer.
+
+**Automatic backups:** on the same page set *Frequency* to every day or
+every week and choose how many to keep; older automatic backups are
+deleted for you.
+
+> A backup on the same disk does not protect you if the server is lost.
+> Download backups or copy `/var/backups/hmea-panel` to another machine
+> regularly.
+
+**Restore:** click **Restore** on a backup. For a full backup, tick what to
+bring back (website files, databases, mailboxes). Files in the backup
+overwrite current ones; files created later are kept. Databases are
+replaced by their backed-up contents.
+
+**Move to a new server:** install HMEA Panel there, copy the full backup
+file into `/var/backups/hmea-panel` on the new server, open **Backups**
+(the file appears automatically) and restore it. Then re-add the websites,
+database users, mailboxes and DNS zones in the panel: a restore brings back
+the *data*, while panel settings are not recreated automatically. The
+backup also contains the old panel database (`panel/hmea-panel.db`) for
+reference.
+
+**Cron jobs:** **Cron Jobs** → **Add cron job**, pick how often and enter
+the command, for example `php /var/www/example.com/public_html/wp-cron.php`.
+Jobs run as the web user, not as root.
+
+**Site logs:** on the **Websites** page click **Logs** on a site's row to
+see its latest visitor and error log lines.
+
+## 13. Updating HMEA Panel
 
 ```bash
-mariadb-dump --all-databases | gzip > /root/all-databases-$(date +%F).sql.gz
+bash /opt/hmea-panel/update.sh
 ```
 
-## 16. Updating hostdeck
+This downloads the newest version, rebuilds it and restarts only the panel.
+Your sites, databases and mail keep running.
 
-```bash
-cd /opt/hostdeck && git pull && make build && install -m 755 bin/hostdeck /usr/local/bin/hostdeck && systemctl restart hostdeck
-```
-
-Your sites, databases and mail keep running while the panel restarts.
-
-## 17. Removing hostdeck
+## 14. Removing HMEA Panel
 
 This stops and removes the panel only. Websites, databases and mail stay
 in place and keep working; remove those packages separately if you want.
 
 ```bash
-systemctl disable --now hostdeck && rm /usr/local/bin/hostdeck /etc/systemd/system/hostdeck.service && systemctl daemon-reload
+systemctl disable --now hmea-panel && rm /usr/local/bin/hmea-panel /etc/systemd/system/hmea-panel.service && systemctl daemon-reload
 ```

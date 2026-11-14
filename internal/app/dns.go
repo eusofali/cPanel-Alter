@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	bindDir  = "/etc/bind/hostdeck"
-	bindConf = "/etc/bind/hostdeck/zones.conf"
+	bindDir  = "/etc/bind/hmea-panel"
+	bindConf = "/etc/bind/hmea-panel/zones.conf"
 )
 
 var recordTypes = map[string]bool{"A": true, "AAAA": true, "CNAME": true, "MX": true, "TXT": true, "NS": true, "SRV": true, "CAA": true}
@@ -160,7 +160,7 @@ func renderZone(z dnsZone) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "; Managed by hostdeck. Changes made here are overwritten.\n$ORIGIN %s.\n$TTL 3600\n", z.Domain)
+	fmt.Fprintf(&b, "; Managed by hmea-panel. Changes made here are overwritten.\n$ORIGIN %s.\n$TTL 3600\n", z.Domain)
 	fmt.Fprintf(&b, "@ IN SOA %s. hostmaster.%s. ( %d 3600 900 1209600 300 )\n", primary, z.Domain, z.Serial)
 	for _, r := range z.Records {
 		var data string
@@ -216,7 +216,7 @@ func (a *App) applyZoneList() error {
 		return err
 	}
 	var b strings.Builder
-	b.WriteString("// Managed by hostdeck. Changes made here are overwritten.\n")
+	b.WriteString("// Managed by hmea-panel. Changes made here are overwritten.\n")
 	for rows.Next() {
 		var d string
 		if err := rows.Scan(&d); err != nil {

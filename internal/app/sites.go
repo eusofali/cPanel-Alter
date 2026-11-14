@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	nginxDir   = "/etc/nginx/hostdeck/sites"
+	nginxDir   = "/etc/nginx/hmea-panel/sites"
 	acmeRoot   = "/var/www/_letsencrypt"
 	leLiveRoot = "/etc/letsencrypt/live"
 )
@@ -34,7 +34,7 @@ type Site struct {
 func siteDir(domain string) string { return WebRoot + "/" + domain }
 func docroot(domain string) string { return siteDir(domain) + "/public_html" }
 
-var vhostTmpl = template.Must(template.New("vhost").Parse(`# Managed by hostdeck. Changes made here are overwritten.
+var vhostTmpl = template.Must(template.New("vhost").Parse(`# Managed by hmea-panel. Changes made here are overwritten.
 {{define "body"}}    server_name {{.Names}};
     access_log /var/log/nginx/{{.Domain}}.access.log;
     error_log  /var/log/nginx/{{.Domain}}.error.log;
@@ -116,15 +116,15 @@ func renderVhost(s Site) (string, error) {
 	return buf.String(), err
 }
 
-func poolSock(id int64) string { return fmt.Sprintf("/run/php/hostdeck-site%d.sock", id) }
+func poolSock(id int64) string { return fmt.Sprintf("/run/php/hmea-site%d.sock", id) }
 func poolFile(version string, id int64) string {
-	return fmt.Sprintf("/etc/php/%s/fpm/pool.d/hostdeck-site%d.conf", version, id)
+	return fmt.Sprintf("/etc/php/%s/fpm/pool.d/hmea-site%d.conf", version, id)
 }
 
 // Each PHP site gets its own FPM pool. "ondemand" keeps idle sites at zero
 // workers (important on small VPSes) and open_basedir stops one site's code
 // from reading another site's files.
-var poolTmpl = template.Must(template.New("pool").Parse(`; Managed by hostdeck. Changes made here are overwritten.
+var poolTmpl = template.Must(template.New("pool").Parse(`; Managed by hmea-panel. Changes made here are overwritten.
 [site{{.ID}}]
 user = www-data
 group = www-data

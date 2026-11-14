@@ -6,6 +6,7 @@ package sys
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -68,13 +69,38 @@ func (s *Sys) RunTimeout(limit time.Duration, stdin, name string, args ...string
 	return text, nil
 }
 
+// RunIO streams stdin from a reader (for large inputs such as SQL dumps).
+func (s *Sys) RunIO(limit time.Duration, stdin io.Reader, name string, args ...string) error {
+	if s.Dev {
+		s.Log.Info("dev: command skipped", "cmd", name+" "+strings.Join(args, " "))
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	cmd.Stdin = stdin
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		text := strings.TrimSpace(string(out))
+		if text == "" {
+			text = err.Error()
+		}
+		if len(text) > 2000 {
+			text = text[len(text)-2000:]
+		}
+		return fmt.Errorf("%s failed: %s", name, text)
+	}
+	return nil
+}
+
 // WriteFile writes atomically, creating parent directories.
 func (s *Sys) WriteFile(path string, data []byte, perm os.FileMode) error {
 	p := s.Path(path)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(p), ".hostdeck-*")
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".hmea-panel-*")
 	if err != nil {
 		return err
 	}

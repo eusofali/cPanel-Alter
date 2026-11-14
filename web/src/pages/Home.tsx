@@ -36,7 +36,7 @@ function Usage({ label, used, total }: { label: string; used: number; total: num
 
 function loadClosed(): string[] {
   try {
-    return JSON.parse(localStorage.getItem("hostdeck:closed") || "[]");
+    return JSON.parse(localStorage.getItem("hmea-panel:closed") || "[]");
   } catch {
     return [];
   }
@@ -55,7 +55,7 @@ export default function Home() {
     const next = closed.includes(id) ? closed.filter((x) => x !== id) : [...closed, id];
     setClosed(next);
     try {
-      localStorage.setItem("hostdeck:closed", JSON.stringify(next));
+      localStorage.setItem("hmea-panel:closed", JSON.stringify(next));
     } catch {
       /* private mode: the choice just is not remembered */
     }

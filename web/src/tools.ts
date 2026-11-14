@@ -6,7 +6,7 @@ export const groups: Group[] = [
   {
     id: "domains", label: "Domains", tone: "blue",
     tools: [
-      { id: "sites", label: "Websites", desc: "Add domains and choose how they are served", route: "sites", icon: "globe", keywords: "domain addon alias subdomain nginx vhost proxy" },
+      { id: "sites", label: "Websites", desc: "Add domains and choose how they are served", route: "sites", icon: "globe", keywords: "domain addon alias subdomain nginx vhost proxy access error logs" },
       { id: "ssl", label: "SSL/TLS", desc: "Free HTTPS certificates and redirects", route: "sites", icon: "lock", keywords: "https certificate lets encrypt" },
       { id: "dns", label: "Zone Editor", desc: "DNS zones and records", route: "dns", icon: "network", keywords: "dns a cname mx txt ns record nameserver bind" },
     ],
@@ -15,6 +15,7 @@ export const groups: Group[] = [
     id: "files", label: "Files", tone: "amber",
     tools: [
       { id: "files", label: "File Manager", desc: "Browse, upload and edit site files", route: "files", icon: "folder", keywords: "upload edit public_html" },
+      { id: "backups", label: "Backups", desc: "Back up and restore sites, databases and mail", route: "backups", icon: "archive", keywords: "backup restore download schedule archive migrate" },
       { id: "ftp", label: "FTP Accounts", desc: "Logins locked to a single folder", route: "ftp", icon: "transfer", keywords: "ftps upload deploy" },
     ],
   },
@@ -42,10 +43,11 @@ export const groups: Group[] = [
   {
     id: "server", label: "Server", tone: "slate",
     tools: [
+      { id: "cron", label: "Cron Jobs", desc: "Run commands on a schedule", route: "cron", icon: "clock", keywords: "schedule task crontab timer" },
       { id: "services", label: "Services", desc: "Status and restart of server software", route: "server", icon: "server", keywords: "restart nginx mariadb status" },
       { id: "activity", label: "Activity Log", desc: "Recent changes made in the panel", route: "server", icon: "activity", keywords: "audit history log" },
       { id: "settings", label: "Settings", desc: "Admin email and server address", route: "settings", icon: "settings", keywords: "preferences ip email" },
-      { id: "password", label: "Password & Security", desc: "Change the admin password", route: "settings", icon: "shield", keywords: "login security" },
+      { id: "password", label: "Password & Security", desc: "Admin password and two-factor sign-in", route: "settings", icon: "shield", keywords: "login security 2fa two-factor totp authenticator" },
     ],
   },
 ];

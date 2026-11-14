@@ -41,8 +41,8 @@ function Editor({ path, onClose }: { path: string; onClose: () => void }) {
 
 export default function Files() {
   const [path, setPath] = useState(() => {
-    const start = sessionStorage.getItem("hostdeck:path") || "/";
-    sessionStorage.removeItem("hostdeck:path");
+    const start = sessionStorage.getItem("hmea-panel:path") || "/";
+    sessionStorage.removeItem("hmea-panel:path");
     return start;
   });
   const { data, error, reload } = useLoad<Listing>(`/files?path=${q(path)}`);

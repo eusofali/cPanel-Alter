@@ -15,13 +15,13 @@ const appPortBase = 20000
 
 func (s Site) isApp() bool { return s.Type == "node" || s.Type == "python" }
 
-func unitName(id int64) string    { return fmt.Sprintf("hostdeck-site%d", id) }
+func unitName(id int64) string    { return fmt.Sprintf("hmea-site%d", id) }
 func unitFile(id int64) string    { return "/etc/systemd/system/" + unitName(id) + ".service" }
 func appDir(domain string) string { return siteDir(domain) + "/app" }
 
-var unitTmpl = template.Must(template.New("unit").Parse(`# Managed by hostdeck. Changes made here are overwritten.
+var unitTmpl = template.Must(template.New("unit").Parse(`# Managed by hmea-panel. Changes made here are overwritten.
 [Unit]
-Description=hostdeck app for {{.Domain}}
+Description=hmea-panel app for {{.Domain}}
 After=network.target
 
 [Service]
@@ -78,7 +78,7 @@ func (a *App) asWeb(limit time.Duration, s Site, name string, args ...string) (s
 	return a.Sys.RunTimeout(limit, "", "runuser", full...)
 }
 
-const nodeStarter = `// Starter app created by hostdeck. Replace it with your own code.
+const nodeStarter = `// Starter app created by hmea-panel. Replace it with your own code.
 const http = require("http");
 const port = process.env.PORT || 3000;
 http
@@ -89,7 +89,7 @@ http
   .listen(port, "127.0.0.1");
 `
 
-const pythonStarter = `# Starter app created by hostdeck. Replace it with your own code.
+const pythonStarter = `# Starter app created by hmea-panel. Replace it with your own code.
 # Flask or Django work the same way: point the site's WSGI entry at them.
 def app(environ, start_response):
     start_response("200 OK", [("Content-Type", "text/plain; charset=utf-8")])

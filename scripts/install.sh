@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hostdeck installer for Ubuntu 22.04/24.04 and Debian 12.
+# HMEA Panel system setup for Ubuntu 22.04/24.04 and Debian 12.
 # Usage: sudo scripts/install.sh [--no-mail] [--no-dns] [--no-ftp] [--no-apps] [--no-firewall] [--php-repo]
 #   --no-apps    skip Node.js and Python (only PHP, static and proxy sites)
 #   --php-repo   add the Ondrej Sury PHP repository so several PHP versions
@@ -24,7 +24,7 @@ done
 case "$ID" in ubuntu|debian) ;; *) echo "only Ubuntu and Debian are supported" >&2; exit 1 ;; esac
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-[ -x "$HERE/bin/hostdeck" ] || { echo "build first: make build" >&2; exit 1; }
+[ -x "$HERE/bin/hmea-panel" ] || { echo "Not built yet. Run: bash $HERE/install.sh" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
 RAM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
@@ -35,7 +35,7 @@ if [ "$RAM_MB" -lt 2000 ] && [ "$(swapon --noheadings | wc -l)" -eq 0 ] && [ ! -
   say "Low memory (${RAM_MB} MB): creating a 1 GB swap file"
   fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
-  echo 'vm.swappiness=10' > /etc/sysctl.d/99-hostdeck.conf && sysctl -q -p /etc/sysctl.d/99-hostdeck.conf
+  echo 'vm.swappiness=10' > /etc/sysctl.d/99-hmea-panel.conf && sysctl -q -p /etc/sysctl.d/99-hmea-panel.conf
 fi
 
 say "Installing packages"
@@ -58,7 +58,7 @@ if [ "$APPS" -eq 1 ] && ! command -v node >/dev/null; then
   echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
   apt-get update -q
 fi
-PKGS="curl tar nginx mariadb-server certbot ssl-cert openssl php-fpm php-cli php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-opcache"
+PKGS="curl tar gzip cron nginx mariadb-server certbot ssl-cert openssl php-fpm php-cli php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-opcache"
 [ "$APPS" -eq 1 ] && PKGS="$PKGS nodejs python3 python3-venv python3-pip"
 [ "$FIREWALL" -eq 1 ] && PKGS="$PKGS ufw fail2ban"
 [ "$MAIL" -eq 1 ] && PKGS="$PKGS postfix dovecot-core dovecot-imapd dovecot-lmtpd"
@@ -73,10 +73,10 @@ apt-get install -y -q --no-install-recommends $PKGS
 
 # --- Nginx
 say "Configuring Nginx"
-mkdir -p /etc/nginx/hostdeck/sites /var/www/_letsencrypt
-cat > /etc/nginx/conf.d/hostdeck.conf <<'CONF'
+mkdir -p /etc/nginx/hmea-panel/sites /var/www/_letsencrypt
+cat > /etc/nginx/conf.d/hmea-panel.conf <<'CONF'
 server_tokens off;
-include /etc/nginx/hostdeck/sites/*.conf;
+include /etc/nginx/hmea-panel/sites/*.conf;
 CONF
 # Requests for names no site claims get no answer instead of the first site.
 cat > /etc/nginx/sites-available/default <<'CONF'
@@ -91,8 +91,8 @@ CONF
 chown www-data:www-data /var/www
 nginx -t && systemctl reload nginx
 mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-printf '#!/bin/sh\nsystemctl reload nginx\n' > /etc/letsencrypt/renewal-hooks/deploy/hostdeck-nginx.sh
-chmod +x /etc/letsencrypt/renewal-hooks/deploy/hostdeck-nginx.sh
+printf '#!/bin/sh\nsystemctl reload nginx\n' > /etc/letsencrypt/renewal-hooks/deploy/hmea-panel-nginx.sh
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/hmea-panel-nginx.sh
 
 # --- PHP-FPM: the stock pool also starts workers only when needed.
 for pool in /etc/php/*/fpm/pool.d/www.conf; do
@@ -105,7 +105,7 @@ done
 # --- MariaDB: local only, sized for the machine.
 say "Configuring MariaDB"
 if [ "$RAM_MB" -lt 1500 ]; then BUFFER=64M; elif [ "$RAM_MB" -lt 4000 ]; then BUFFER=256M; else BUFFER=1G; fi
-cat > /etc/mysql/mariadb.conf.d/99-hostdeck.cnf <<CONF
+cat > /etc/mysql/mariadb.conf.d/99-hmea-panel.cnf <<CONF
 [mysqld]
 bind-address = 127.0.0.1
 skip-name-resolve
@@ -123,15 +123,15 @@ if [ "$MAIL" -eq 1 ]; then
   say "Configuring Postfix and Dovecot"
   getent group vmail >/dev/null || groupadd -g 5000 vmail
   id vmail >/dev/null 2>&1 || useradd -u 5000 -g vmail -d /var/mail/vhosts -s /usr/sbin/nologin vmail
-  mkdir -p /var/mail/vhosts /etc/postfix/hostdeck
+  mkdir -p /var/mail/vhosts /etc/postfix/hmea-panel
   chown vmail:vmail /var/mail/vhosts && chmod 770 /var/mail/vhosts
-  for f in vdomains vmailbox valias; do touch "/etc/postfix/hostdeck/$f"; postmap "/etc/postfix/hostdeck/$f"; done
-  touch /etc/dovecot/hostdeck-users && chown root:dovecot /etc/dovecot/hostdeck-users && chmod 640 /etc/dovecot/hostdeck-users
+  for f in vdomains vmailbox valias; do touch "/etc/postfix/hmea-panel/$f"; postmap "/etc/postfix/hmea-panel/$f"; done
+  touch /etc/dovecot/hmea-panel-users && chown root:dovecot /etc/dovecot/hmea-panel-users && chmod 640 /etc/dovecot/hmea-panel-users
 
   postconf -e \
-    "virtual_mailbox_domains = hash:/etc/postfix/hostdeck/vdomains" \
-    "virtual_mailbox_maps = hash:/etc/postfix/hostdeck/vmailbox" \
-    "virtual_alias_maps = hash:/etc/postfix/hostdeck/valias" \
+    "virtual_mailbox_domains = hash:/etc/postfix/hmea-panel/vdomains" \
+    "virtual_mailbox_maps = hash:/etc/postfix/hmea-panel/vmailbox" \
+    "virtual_alias_maps = hash:/etc/postfix/hmea-panel/valias" \
     "virtual_transport = lmtp:unix:private/dovecot-lmtp" \
     "smtpd_sasl_type = dovecot" \
     "smtpd_sasl_path = private/auth" \
@@ -150,7 +150,7 @@ if [ "$MAIL" -eq 1 ]; then
     "submission/inet/smtpd_recipient_restrictions=permit_sasl_authenticated,reject"
 
   sed -i 's/^!include auth-system.conf.ext/#!include auth-system.conf.ext/' /etc/dovecot/conf.d/10-auth.conf
-  cat > /etc/dovecot/conf.d/99-hostdeck.conf <<'CONF'
+  cat > /etc/dovecot/conf.d/99-hmea-panel.conf <<'CONF'
 protocols = imap lmtp
 ssl = required
 disable_plaintext_auth = yes
@@ -166,11 +166,11 @@ plugin {
 }
 passdb {
   driver = passwd-file
-  args = scheme=BLF-CRYPT username_format=%u /etc/dovecot/hostdeck-users
+  args = scheme=BLF-CRYPT username_format=%u /etc/dovecot/hmea-panel-users
 }
 userdb {
   driver = passwd-file
-  args = username_format=%u /etc/dovecot/hostdeck-users
+  args = username_format=%u /etc/dovecot/hmea-panel-users
 }
 service auth {
   unix_listener /var/spool/postfix/private/auth {
@@ -216,9 +216,9 @@ fi
 # --- DNS: authoritative only, never an open resolver.
 if [ "$DNS" -eq 1 ]; then
   say "Configuring BIND"
-  mkdir -p /etc/bind/hostdeck
-  [ -e /etc/bind/hostdeck/zones.conf ] || echo "// Managed by hostdeck." > /etc/bind/hostdeck/zones.conf
-  grep -q hostdeck/zones.conf /etc/bind/named.conf.local || echo 'include "/etc/bind/hostdeck/zones.conf";' >> /etc/bind/named.conf.local
+  mkdir -p /etc/bind/hmea-panel
+  [ -e /etc/bind/hmea-panel/zones.conf ] || echo "// Managed by hmea-panel." > /etc/bind/hmea-panel/zones.conf
+  grep -q hmea-panel/zones.conf /etc/bind/named.conf.local || echo 'include "/etc/bind/hmea-panel/zones.conf";' >> /etc/bind/named.conf.local
   grep -q 'recursion no' /etc/bind/named.conf.options || sed -i '0,/options {/s//options {\n\trecursion no;\n\tallow-transfer { none; };\n\tversion "none";/' /etc/bind/named.conf.options
   named-checkconf && systemctl restart named
 fi
@@ -237,23 +237,24 @@ if [ "$FIREWALL" -eq 1 ]; then
     printf '[DEFAULT]\nbantime = 1h\nfindtime = 10m\nmaxretry = 5\n\n[sshd]\nenabled = true\n'
     [ "$MAIL" -eq 1 ] && printf '\n[postfix]\nenabled = true\n\n[dovecot]\nenabled = true\n'
     [ "$FTP" -eq 1 ] && printf '\n[pure-ftpd]\nenabled = true\n'
-  } > /etc/fail2ban/jail.d/hostdeck.conf
+  } > /etc/fail2ban/jail.d/hmea-panel.conf
   systemctl restart fail2ban || echo "warning: fail2ban did not start; check 'journalctl -u fail2ban'"
 fi
 
 # --- The panel itself.
-say "Installing hostdeck"
-install -m 755 "$HERE/bin/hostdeck" /usr/local/bin/hostdeck
-install -m 644 "$HERE/scripts/hostdeck.service" /etc/systemd/system/hostdeck.service
-mkdir -p /var/lib/hostdeck && chmod 700 /var/lib/hostdeck
+say "Installing HMEA Panel"
+install -m 755 "$HERE/bin/hmea-panel" /usr/local/bin/hmea-panel
+install -m 644 "$HERE/scripts/hmea-panel.service" /etc/systemd/system/hmea-panel.service
+mkdir -p /var/lib/hmea-panel /var/backups/hmea-panel && chmod 700 /var/lib/hmea-panel /var/backups/hmea-panel
 systemctl daemon-reload
-systemctl enable --now hostdeck
+systemctl enable hmea-panel
+systemctl restart hmea-panel
 sleep 2
 
 IP=$(hostname -I | awk '{print $1}')
 echo
-echo "hostdeck is running at https://${IP}:8443 (self-signed certificate: your browser will warn once)."
-if [ -e /var/lib/hostdeck/initial-password.txt ]; then
-  echo "Initial admin password: $(cat /var/lib/hostdeck/initial-password.txt)"
-  echo "Change it under Settings, then delete /var/lib/hostdeck/initial-password.txt."
+echo "HMEA Panel is running at https://${IP}:8443 (self-signed certificate: your browser will warn once)."
+if [ -e /var/lib/hmea-panel/initial-password.txt ]; then
+  echo "Initial admin password: $(cat /var/lib/hmea-panel/initial-password.txt)"
+  echo "Change it under Settings, then delete /var/lib/hmea-panel/initial-password.txt."
 fi

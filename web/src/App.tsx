@@ -12,11 +12,13 @@ import Ftp from "./pages/Ftp";
 import Mail from "./pages/Mail";
 import Dns from "./pages/Dns";
 import Server from "./pages/Server";
+import Backups from "./pages/Backups";
+import Cron from "./pages/Cron";
 import Settings from "./pages/Settings";
 
 const pages: Record<string, JSX.Element> = {
   home: <Home />, sites: <Sites />, php: <Php />, databases: <Databases />, files: <Files />,
-  ftp: <Ftp />, mail: <Mail />, dns: <Dns />, server: <Server />, settings: <Settings />,
+  ftp: <Ftp />, mail: <Mail />, dns: <Dns />, server: <Server />, backups: <Backups />, cron: <Cron />, settings: <Settings />,
 };
 
 // One sidebar entry per page (several tools can share a page).
@@ -31,15 +33,17 @@ const currentRoute = () => location.hash.slice(2) || "home";
 
 function Logo() {
   return (
-    <a className="logo" href="#/home" aria-label="hostdeck home">
+    <a className="logo" href="#/home" aria-label="HMEA Panel home">
       <span className="logo-mark" aria-hidden="true"><Icon name="server" size={18} /></span>
-      <span>host<b>deck</b></span>
+      <span>HMEA <b>Panel</b></span>
     </a>
   );
 }
 
 function Login({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needCode, setNeedCode] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -48,24 +52,37 @@ function Login({ onDone }: { onDone: () => void }) {
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
+          setError("");
           try {
-            await api("POST", "/login", { password });
+            await api("POST", "/login", { password, code });
             onDone();
           } catch (err: any) {
-            setError(err.message);
+            if (err.data?.totp_required) {
+              if (needCode) setError(err.message);
+              setNeedCode(true);
+            } else {
+              setError(err.message);
+            }
             setBusy(false);
           }
         }}
       >
-        <div className="login-brand"><span className="logo-mark"><Icon name="server" size={22} /></span><span>host<b>deck</b></span></div>
+        <div className="login-brand"><span className="logo-mark"><Icon name="server" size={22} /></span><span>HMEA <b>Panel</b></span></div>
         <h1>Sign in</h1>
         <p className="muted">Manage websites, email, databases and DNS on this server.</p>
         <label className="field">
           <span>Admin password</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" required />
         </label>
+        {needCode && (
+          <label className="field">
+            <span>Authenticator code</span>
+            <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="6 digits" maxLength={7} autoFocus required />
+            <small>Open your authenticator app and enter the current code for HMEA Panel.</small>
+          </label>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
-        <button className="primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <button className="primary" disabled={busy}>{busy ? "Signing in…" : needCode ? "Verify and sign in" : "Sign in"}</button>
       </form>
     </main>
   );
@@ -148,10 +165,10 @@ export default function App() {
     };
     const onOut = () => setMe((m) => (m ? { ...m, authenticated: false } : m));
     window.addEventListener("hashchange", onHash);
-    window.addEventListener("hostdeck:signed-out", onOut);
+    window.addEventListener("hmea-panel:signed-out", onOut);
     return () => {
       window.removeEventListener("hashchange", onHash);
-      window.removeEventListener("hostdeck:signed-out", onOut);
+      window.removeEventListener("hmea-panel:signed-out", onOut);
     };
   }, []);
 

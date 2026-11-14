@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"hostdeck/internal/sys"
+	"hmeapanel/internal/sys"
 )
 
 type client struct {
@@ -50,7 +50,7 @@ func (c *client) do(method, path string, body any) (int, map[string]any) {
 		_ = json.NewEncoder(&buf).Encode(body)
 	}
 	req, _ := http.NewRequest(method, c.base+path, &buf)
-	req.Header.Set("X-Requested-With", "hostdeck")
+	req.Header.Set("X-Requested-With", "hmea-panel")
 	res, err := c.http.Do(req)
 	if err != nil {
 		c.t.Fatal(err)
@@ -109,7 +109,7 @@ func TestSiteLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"server_name example.com www.example.com;", "fastcgi_pass unix:/run/php/hostdeck-site1.sock;", "root /var/www/example.com/public_html;"} {
+	for _, want := range []string{"server_name example.com www.example.com;", "fastcgi_pass unix:/run/php/hmea-site1.sock;", "root /var/www/example.com/public_html;"} {
 		if !strings.Contains(string(conf), want) {
 			t.Errorf("vhost missing %q\n%s", want, conf)
 		}
@@ -361,5 +361,122 @@ func TestHelpers(t *testing.T) {
 		if validDomain(d) {
 			t.Errorf("validDomain(%q) = true", d)
 		}
+	}
+}
+
+func waitBackups(t *testing.T, c *client) []any {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		list := c.must("GET", "/api/backups", nil, 200)["backups"].([]any)
+		busy := false
+		for _, b := range list {
+			st := b.(map[string]any)["status"]
+			busy = busy || st == "running" || st == "restoring"
+		}
+		if !busy {
+			return list
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("backup did not finish")
+	return nil
+}
+
+func TestBackups(t *testing.T) {
+	a, c := newTestApp(t)
+	c.login()
+	c.must("POST", "/api/sites", map[string]any{"domain": "example.com", "type": "static"}, 201)
+	c.must("POST", "/api/databases", map[string]string{"name": "shop"}, 201)
+	c.must("POST", "/api/backups", map[string]string{"kind": "site", "target": "nope.com"}, 400)
+	c.must("POST", "/api/backups", map[string]string{"kind": "database", "target": "x; rm"}, 400)
+	c.must("POST", "/api/backups", map[string]string{"kind": "bogus"}, 400)
+
+	c.must("POST", "/api/backups", map[string]string{"kind": "full"}, 202)
+	list := waitBackups(t, c)
+	if len(list) != 1 || list[0].(map[string]any)["status"] != "done" {
+		t.Fatalf("full backup not done: %v", list)
+	}
+	file := list[0].(map[string]any)["file"].(string)
+	if !reBackupFile.MatchString(file) || !a.Sys.Exists(backupDir+"/"+file) {
+		t.Fatalf("backup file missing: %s", file)
+	}
+	c.must("POST", "/api/backups/1/restore", map[string]bool{}, 400) // nothing selected
+	c.must("POST", "/api/backups/1/restore", map[string]bool{"files": true, "databases": true}, 202)
+	list = waitBackups(t, c)
+	if note := list[0].(map[string]any)["note"].(string); !strings.HasPrefix(note, "Restored ") {
+		t.Errorf("restore note = %q", note)
+	}
+
+	// An archive copied in by hand is picked up; junk names are ignored.
+	_ = a.Sys.WriteFile(backupDir+"/site-example.com-20260101-010203.tar.gz", []byte("x"), 0o600)
+	_ = a.Sys.WriteFile(backupDir+"/evil;name.tar.gz", []byte("x"), 0o600)
+	if list = waitBackups(t, c); len(list) != 2 {
+		t.Fatalf("expected 2 backups after adopting, got %d", len(list))
+	}
+
+	c.must("PUT", "/api/backups/schedule", map[string]any{"schedule": "hourly", "keep": 3}, 400)
+	c.must("PUT", "/api/backups/schedule", map[string]any{"schedule": "daily", "keep": 1}, 200)
+	time.Sleep(1100 * time.Millisecond) // file names carry a one-second timestamp
+	a.scheduledBackup(time.Now())
+	a.scheduledBackup(time.Now()) // not due again
+	autos := 0
+	for _, b := range waitBackups(t, c) {
+		if b.(map[string]any)["auto"] == true {
+			autos++
+		}
+	}
+	if autos != 1 {
+		t.Errorf("automatic backups = %d, want 1", autos)
+	}
+	c.must("DELETE", "/api/backups/1", nil, 200)
+	if a.Sys.Exists(backupDir + "/" + file) {
+		t.Error("backup file not deleted")
+	}
+}
+
+func TestCron(t *testing.T) {
+	a, c := newTestApp(t)
+	c.login()
+	c.must("POST", "/api/cron", map[string]any{"schedule": "*/5 * * * *", "command": "php /var/www/example.com/public_html/cron.php", "comment": "site cron"}, 201)
+	c.must("POST", "/api/cron", map[string]any{"schedule": "@daily", "command": "true"}, 201)
+	c.must("POST", "/api/cron", map[string]any{"schedule": "* * * *", "command": "true"}, 400)
+	c.must("POST", "/api/cron", map[string]any{"schedule": "* * * * *\nroot", "command": "true"}, 400)
+	c.must("POST", "/api/cron", map[string]any{"schedule": "* * * * *", "command": "true\n* * * * * root reboot"}, 400)
+	c.must("PUT", "/api/cron/2", map[string]any{"schedule": "@daily", "command": "true", "enabled": false}, 200)
+	file, _ := a.Sys.ReadFile(cronFile)
+	for _, want := range []string{"# site cron\n*/5 * * * * www-data php /var/www/example.com/public_html/cron.php\n", "#disabled# @daily www-data true\n"} {
+		if !strings.Contains(string(file), want) {
+			t.Errorf("cron file missing %q\n%s", want, file)
+		}
+	}
+	c.must("DELETE", "/api/cron/1", nil, 200)
+	c.must("DELETE", "/api/cron/1", nil, 404)
+}
+
+func TestTwoFactor(t *testing.T) {
+	// RFC 6238 test vector (SHA-1, 8 digits 94287082 -> last 6 are 287082).
+	if got := totpCode([]byte("12345678901234567890"), 59/30); got != "287082" {
+		t.Fatalf("totpCode = %s, want 287082", got)
+	}
+	a, c := newTestApp(t)
+	c.login()
+	secret := c.must("POST", "/api/2fa/setup", nil, 200)["secret"].(string)
+	key, _ := b32.DecodeString(secret)
+	c.must("POST", "/api/2fa/enable", map[string]string{"code": "000000"}, 400)
+	step := uint64(time.Now().Unix() / 30)
+	c.must("POST", "/api/2fa/enable", map[string]string{"code": totpCode(key, step)}, 200)
+	c.must("POST", "/api/logout", nil, 200)
+
+	if _, out := c.do("POST", "/api/login", map[string]string{"password": "correct horse"}); out["totp_required"] != true {
+		t.Fatalf("login should ask for a code: %v", out)
+	}
+	c.must("GET", "/api/sites", nil, 401)
+	// The code used to enable cannot be replayed; the next step's code works.
+	c.must("POST", "/api/login", map[string]string{"password": "correct horse", "code": totpCode(key, step)}, 401)
+	c.must("POST", "/api/login", map[string]string{"password": "correct horse", "code": totpCode(key, step+1)}, 200)
+	c.must("POST", "/api/2fa/disable", map[string]string{"password": "wrong"}, 400)
+	c.must("POST", "/api/2fa/disable", map[string]string{"password": "correct horse"}, 200)
+	if a.setting("totp_enabled") == "1" {
+		t.Error("2fa still enabled")
 	}
 }

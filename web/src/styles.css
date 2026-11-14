@@ -242,3 +242,15 @@ tbody tr:hover { background: var(--hover); }
 .modules { margin-top: 20px; }
 .modules summary { cursor: pointer; color: var(--accent); }
 .modules p { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.logs.tall { max-height: 60vh; white-space: pre; }
+.schedule { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+.schedule > div:first-child { flex: 1; min-width: 240px; }
+.schedule h3, .schedule p { margin: 0 0 4px; }
+.schedule-form { display: flex; gap: 10px; align-items: flex-end; }
+.schedule-form .field { margin: 0; }
+.schedule-form input { width: 80px; }
+.note { margin-top: 14px; }
+.qr { background: #fff; padding: 10px; border-radius: 8px; display: inline-block; line-height: 0; border: 1px solid var(--border); }
+.twofa { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 14px; }
+.twofa > div:last-child { flex: 1; min-width: 200px; }
+.secret { font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--hover); padding: 6px 8px; border-radius: 6px; display: block; margin: 4px 0 10px; }

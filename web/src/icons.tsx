@@ -20,6 +20,8 @@ const paths: Record<string, string> = {
   menu: "M4 6h16M4 12h16M4 18h16",
   logout: "M10 4H5v16h5M14 8l4 4-4 4M18 12H9",
   puzzle: "M9 4h6v3.2a2 2 0 102.8 2.8H21v6h-3.2a2 2 0 10-2.8 2.8V20H9v-1.2a2 2 0 10-2.8-2.8H3v-6h3.2A2 2 0 109 7.2z",
+  archive: "M3 5h18v4H3zM5 9v10h14V9M9.5 13h5",
+  clock: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7.5V12l3 2",
   shield: "M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6zM8.5 12l2.5 2.5 4.5-5",
 };
 

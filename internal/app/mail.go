@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	postfixDir   = "/etc/postfix/hostdeck"
-	dovecotUsers = "/etc/dovecot/hostdeck-users"
+	postfixDir   = "/etc/postfix/hmea-panel"
+	dovecotUsers = "/etc/dovecot/hmea-panel-users"
 	mailBase     = "/var/mail/vhosts"
 	vmailID      = 5000 // uid/gid of the "vmail" user created by the installer
 )

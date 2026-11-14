@@ -1,11 +1,11 @@
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public data: any = {}) {
     super(message);
   }
 }
 
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, headers: { "X-Requested-With": "hostdeck" }, credentials: "same-origin" };
+  const init: RequestInit = { method, headers: { "X-Requested-With": "hmea-panel" }, credentials: "same-origin" };
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -20,8 +20,8 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && path !== "/login") window.dispatchEvent(new Event("hostdeck:signed-out"));
-    throw new ApiError(res.status, data.error || `Request failed (${res.status})`);
+    if (res.status === 401 && path !== "/login") window.dispatchEvent(new Event("hmea-panel:signed-out"));
+    throw new ApiError(res.status, data.error || `Request failed (${res.status})`, data);
   }
   return data as T;
 }

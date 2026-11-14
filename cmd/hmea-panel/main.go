@@ -1,4 +1,4 @@
-// hostdeck is a lightweight web hosting control panel for Ubuntu/Debian.
+// hmea-panel is a lightweight web hosting control panel for Ubuntu/Debian.
 package main
 
 import (
@@ -25,32 +25,32 @@ import (
 	"syscall"
 	"time"
 
-	"hostdeck/internal/app"
-	"hostdeck/internal/sys"
-	"hostdeck/web"
+	"hmeapanel/internal/app"
+	"hmeapanel/internal/sys"
+	"hmeapanel/web"
 )
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "hostdeck:", err)
+		fmt.Fprintln(os.Stderr, "hmea-panel:", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
 	dev := flag.Bool("dev", false, "development mode: simulate system changes under <data>/devroot, plain HTTP")
-	data := flag.String("data", "", "data directory (default /var/lib/hostdeck, or ./data in dev mode)")
+	data := flag.String("data", "", "data directory (default /var/lib/hmea-panel, or ./data in dev mode)")
 	listen := flag.String("listen", "", "listen address (default :8443, or 127.0.0.1:8080 in dev mode)")
 	cert := flag.String("tls-cert", "", "TLS certificate file (default: self-signed, generated in the data directory)")
 	key := flag.String("tls-key", "", "TLS private key file")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: hostdeck [flags] [serve|set-password]")
+		fmt.Fprintln(os.Stderr, "usage: hmea-panel [flags] [serve|set-password|disable-2fa]")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
 	if *data == "" {
-		*data = "/var/lib/hostdeck"
+		*data = "/var/lib/hmea-panel"
 		if *dev {
 			*data = "data"
 		}
@@ -73,12 +73,12 @@ func run() error {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	db, err := app.OpenDB(filepath.Join(dataDir, "hostdeck.db"))
+	db, err := app.OpenDB(filepath.Join(dataDir, "hmea-panel.db"))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	_ = os.Chmod(filepath.Join(dataDir, "hostdeck.db"), 0o600)
+	_ = os.Chmod(filepath.Join(dataDir, "hmea-panel.db"), 0o600)
 
 	a := &app.App{
 		DB:  db,
@@ -97,6 +97,12 @@ func run() error {
 		}
 		fmt.Println("Password updated; all sessions were signed out.")
 		return nil
+	case "disable-2fa":
+		if err := a.DisableTwoFactor(); err != nil {
+			return err
+		}
+		fmt.Println("Two-factor sign-in is now off.")
+		return nil
 	case "", "serve":
 	default:
 		flag.Usage()
@@ -113,6 +119,10 @@ func run() error {
 		log.Info("first start: admin password generated; change it after signing in", "file", pwFile)
 	}
 
+	bg, stopBG := context.WithCancel(context.Background())
+	defer stopBG()
+	go a.RunScheduler(bg)
+
 	srv := &http.Server{
 		Addr:              *listen,
 		Handler:           a.Handler(),
@@ -124,7 +134,7 @@ func run() error {
 	errc := make(chan error, 1)
 	go func() {
 		if *dev {
-			log.Info("hostdeck listening (dev mode, system changes are simulated)", "url", "http://"+*listen)
+			log.Info("hmea-panel listening (dev mode, system changes are simulated)", "url", "http://"+*listen)
 			errc <- srv.ListenAndServe()
 			return
 		}
@@ -137,7 +147,7 @@ func run() error {
 			}
 		}
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		log.Info("hostdeck listening", "addr", *listen)
+		log.Info("hmea-panel listening", "addr", *listen)
 		errc <- srv.ListenAndServeTLS(certFile, keyFile)
 	}()
 
@@ -172,7 +182,7 @@ func ensureSelfSigned(certFile, keyFile string) error {
 	host, _ := os.Hostname()
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "hostdeck " + host},
+		Subject:      pkix.Name{CommonName: "hmea-panel " + host},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().AddDate(5, 0, 0),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

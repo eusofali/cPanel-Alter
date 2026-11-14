@@ -137,6 +137,26 @@ function AppModal({ site, onClose }: { site: Site; onClose: () => void }) {
   );
 }
 
+function LogsModal({ site, onClose }: { site: Site; onClose: () => void }) {
+  const [kind, setKind] = useState<"access" | "error">("access");
+  const { data, error, reload } = useLoad<{ log: string }>(`/sites/${site.id}/logs?kind=${kind}`);
+  return (
+    <Modal title={`Logs · ${site.domain}`} onClose={onClose} wide>
+      <div className="modal-body">
+        <div className="toolbar">
+          <div className="tabs" role="tablist">
+            <button role="tab" aria-selected={kind === "access"} className={kind === "access" ? "active" : ""} onClick={() => setKind("access")}>Visitors (access log)</button>
+            <button role="tab" aria-selected={kind === "error"} className={kind === "error" ? "active" : ""} onClick={() => setKind("error")}>Errors</button>
+          </div>
+          <button className="ghost" onClick={reload}>Refresh</button>
+        </div>
+        {!data ? <Loading error={error} /> : <pre className="logs tall">{data.log || "No entries yet."}</pre>}
+      </div>
+      <footer><button className="ghost" onClick={onClose}>Close</button></footer>
+    </Modal>
+  );
+}
+
 export default function Sites() {
   const { data, error, reload } = useLoad<Data>("/sites");
   const [adding, setAdding] = useState(false);
@@ -145,6 +165,7 @@ export default function Sites() {
   const [removeFiles, setRemoveFiles] = useState(false);
   const [busy, setBusy] = useState(0);
   const [app, setApp] = useState<Site | null>(null);
+  const [logs, setLogs] = useState<Site | null>(null);
   const toast = useToast();
 
   const run = async (site: Site, fn: () => Promise<unknown>, done: string) => {
@@ -194,8 +215,9 @@ export default function Sites() {
                   </td>
                   <td><Badge kind={s.enabled ? "ok" : "off"}>{s.enabled ? "Live" : "Disabled"}</Badge></td>
                   <td className="right nowrap">
-                    <a className="btn ghost small" href={`#/files`} onClick={() => sessionStorage.setItem("hostdeck:path", `/${s.domain}/${isApp(s) ? "app" : "public_html"}`)}>Files</a>
+                    <a className="btn ghost small" href={`#/files`} onClick={() => sessionStorage.setItem("hmea-panel:path", `/${s.domain}/${isApp(s) ? "app" : "public_html"}`)}>Files</a>
                     {isApp(s) && <button className="ghost small" onClick={() => setApp(s)}>App</button>}
+                    <button className="ghost small" onClick={() => setLogs(s)}>Logs</button>
                     <button className="ghost small" onClick={() => setEditing(s)}>Edit</button>
                     <button className="ghost small" disabled={busy === s.id} onClick={() => toggle(s)}>{s.enabled ? "Disable" : "Enable"}</button>
                     {s.ssl && <button className="ghost small" onClick={() => run(s, () => api("DELETE", `/sites/${s.id}/ssl`), "HTTPS turned off")}>HTTPS off</button>}
@@ -207,6 +229,7 @@ export default function Sites() {
           </table>
         </div>
       )}
+      {logs && <LogsModal site={logs} onClose={() => setLogs(null)} />}
       {app && <AppModal site={app} onClose={() => setApp(null)} />}
       {adding && data && <SiteForm runtimes={data.runtimes} php={data.php_versions} onClose={() => setAdding(false)} onSaved={reload} />}
       {editing && data && <SiteForm site={editing} runtimes={data.runtimes} php={data.php_versions} onClose={() => setEditing(null)} onSaved={reload} />}

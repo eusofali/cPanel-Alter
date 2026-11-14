@@ -7,13 +7,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 const (
-	cookieName  = "hostdeck_session"
+	cookieName  = "hmea_session"
 	sessionTTL  = 12 * time.Hour
 	maxFailures = 5
 	failWindow  = 10 * time.Minute
@@ -112,6 +113,7 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) error {
 func (a *App) login(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Password string `json:"password"`
+		Code     string `json:"code"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		return err
@@ -124,6 +126,19 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) error {
 		a.throttled(ip, true)
 		a.audit("login.failed", "from "+ip)
 		return &HTTPError{http.StatusUnauthorized, "wrong password"}
+	}
+	if a.setting("totp_enabled") == "1" {
+		if strings.TrimSpace(in.Code) == "" {
+			// The password was right; ask the browser for the second step.
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Enter the 6-digit code from your authenticator app.", "totp_required": true})
+			return nil
+		}
+		if !a.checkTOTP(in.Code) {
+			a.throttled(ip, true)
+			a.audit("login.failed", "wrong two-factor code from "+ip)
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "That code is not valid. Check the time on your phone and try the newest code.", "totp_required": true})
+			return nil
+		}
 	}
 	token := randomToken(32)
 	now := time.Now()

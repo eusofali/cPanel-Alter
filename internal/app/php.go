@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto/md5"
 	"fmt"
 	"net/http"
 	"os"
@@ -205,7 +206,7 @@ func (a *App) setPHPExtension(w http.ResponseWriter, r *http.Request) error {
 // SourceGuardian is a commercial loader that is not in any apt repository.
 // The publisher ships one archive per platform holding a loader file for
 // each PHP version (ixed.<version>.lin). If the publisher moves it, set
-// HOSTDECK_SOURCEGUARDIAN_URL in the panel's systemd unit.
+// HMEA_SOURCEGUARDIAN_URL in the panel's systemd unit.
 const sgDefaultURL = "https://www.sourceguardian.com/loaders/download/loaders.linux-%s.tar.gz"
 
 func (a *App) setSourceGuardian(version string, install bool) error {
@@ -227,12 +228,12 @@ func (a *App) setSourceGuardian(version string, install bool) error {
 	if arch == "" {
 		return bad("SourceGuardian has no loader for this CPU architecture (%s)", runtime.GOARCH)
 	}
-	url := os.Getenv("HOSTDECK_SOURCEGUARDIAN_URL")
+	url := os.Getenv("HMEA_SOURCEGUARDIAN_URL")
 	if url == "" {
 		url = fmt.Sprintf(sgDefaultURL, arch)
 	}
 	if !a.Sys.Dev {
-		tmp, err := os.MkdirTemp("", "hostdeck-sg-*")
+		tmp, err := os.MkdirTemp("", "hmea-panel-sg-*")
 		if err != nil {
 			return err
 		}
@@ -240,6 +241,17 @@ func (a *App) setSourceGuardian(version string, install bool) error {
 		archive := filepath.Join(tmp, "loaders.tar.gz")
 		if _, err := a.Sys.RunTimeout(5*time.Minute, "", "curl", "-fsSL", "--proto", "=https", "--max-time", "240", "-o", archive, url); err != nil {
 			return bad("could not download the SourceGuardian loaders from %s: %v", url, err)
+		}
+		// The publisher lists an MD5 next to each archive. It only guards
+		// against a damaged download, so a missing checksum is not fatal.
+		if want, err := a.Sys.Run("", "curl", "-fsSL", "--proto", "=https", "--max-time", "30", url+".md5"); err == nil {
+			data, rerr := os.ReadFile(archive)
+			if rerr != nil {
+				return rerr
+			}
+			if got := fmt.Sprintf("%x", md5.Sum(data)); len(strings.Fields(want)) > 0 && !strings.EqualFold(strings.Fields(want)[0], got) {
+				return bad("the SourceGuardian download is damaged (checksum mismatch); try again")
+			}
 		}
 		unpack := filepath.Join(tmp, "x")
 		if err := os.Mkdir(unpack, 0o700); err != nil {
@@ -266,7 +278,7 @@ func (a *App) setSourceGuardian(version string, install bool) error {
 			return bad("%v", err)
 		}
 	}
-	if err := a.Sys.WriteFile(ini, []byte("; Managed by hostdeck.\n; priority=15\nextension="+loader+"\n"), 0o644); err != nil {
+	if err := a.Sys.WriteFile(ini, []byte("; Managed by hmea-panel.\n; priority=15\nextension="+loader+"\n"), 0o644); err != nil {
 		return err
 	}
 	if _, err := a.Sys.Run("", "phpenmod", "-v", version, sgName); err != nil {

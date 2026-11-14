@@ -1,4 +1,4 @@
-module hostdeck
+module hmeapanel
 
 go 1.26.0
 
