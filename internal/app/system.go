@@ -120,7 +120,7 @@ func (a *App) systemInfo(w http.ResponseWriter, r *http.Request) error {
 		Detail string `json:"detail"`
 	}
 	acts := []act{}
-	rows, err := a.DB.Query(`SELECT at, action, detail FROM activity ORDER BY id DESC LIMIT 15`)
+	rows, err := a.DB.Query(`SELECT at, action, detail FROM activity ORDER BY id DESC LIMIT 50`)
 	if err != nil {
 		return err
 	}

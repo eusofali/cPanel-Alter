@@ -70,7 +70,9 @@ func (c *client) must(method, path string, body any, want int) map[string]any {
 	return out
 }
 
-func (c *client) login() { c.must("POST", "/api/login", map[string]string{"password": "correct horse"}, 200) }
+func (c *client) login() {
+	c.must("POST", "/api/login", map[string]string{"password": "correct horse"}, 200)
+}
 
 func TestAuthRequired(t *testing.T) {
 	_, c := newTestApp(t)
@@ -156,6 +158,84 @@ func TestSiteLifecycle(t *testing.T) {
 	if a.Sys.Exists(nginxDir+"/example.com.conf") || a.Sys.Exists("/var/www/example.com") {
 		t.Error("site not fully removed")
 	}
+}
+
+func TestApps(t *testing.T) {
+	a, c := newTestApp(t)
+	c.login()
+	c.must("POST", "/api/sites", map[string]any{"domain": "node.example.com", "type": "node"}, 201)
+	c.must("POST", "/api/sites", map[string]any{"domain": "py.example.com", "type": "python", "entry": "shop.wsgi:application"}, 201)
+	c.must("POST", "/api/sites", map[string]any{"domain": "bad.example.com", "type": "node", "entry": "../../etc/x.js"}, 400)
+	c.must("POST", "/api/sites", map[string]any{"domain": "bad.example.com", "type": "python", "entry": "app:app; rm -rf /"}, 400)
+
+	unit, err := a.Sys.ReadFile(unitFile(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"User=www-data", "ExecStart=/usr/bin/node app.js", "PORT=20001", "ReadWritePaths=/var/www/node.example.com", "WorkingDirectory=/var/www/node.example.com/app"} {
+		if !strings.Contains(string(unit), want) {
+			t.Errorf("node unit missing %q\n%s", want, unit)
+		}
+	}
+	unit, _ = a.Sys.ReadFile(unitFile(2))
+	if !strings.Contains(string(unit), "ExecStart=/var/www/py.example.com/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:20002 shop.wsgi:application") {
+		t.Errorf("python unit wrong:\n%s", unit)
+	}
+	if !a.Sys.Exists("/var/www/node.example.com/app/app.js") || !a.Sys.Exists("/var/www/py.example.com/app/shop/wsgi.py") {
+		t.Error("starter files missing")
+	}
+	conf, _ := a.Sys.ReadFile(nginxDir + "/node.example.com.conf")
+	if !strings.Contains(string(conf), "proxy_pass http://127.0.0.1:20001;") {
+		t.Errorf("vhost does not proxy to the app:\n%s", conf)
+	}
+
+	c.must("POST", "/api/sites/1/app/install", nil, 400) // no package.json yet
+	c.must("PUT", "/api/files/content", map[string]string{"path": "/node.example.com/app/package.json", "content": "{}"}, 200)
+	c.must("POST", "/api/sites/1/app/install", nil, 200)
+	c.must("POST", "/api/sites/1/app/restart", nil, 200)
+	c.must("GET", "/api/sites/1/app/logs", nil, 200)
+
+	// Disabling or changing type removes the service.
+	c.must("PUT", "/api/sites/1", map[string]any{"type": "static"}, 200)
+	if a.Sys.Exists(unitFile(1)) {
+		t.Error("unit not removed after switching to static")
+	}
+	c.must("POST", "/api/sites/1/app/restart", nil, 400)
+	c.must("DELETE", "/api/sites/2", nil, 200)
+	if a.Sys.Exists(unitFile(2)) {
+		t.Error("unit not removed with the site")
+	}
+}
+
+func TestPHPExtensions(t *testing.T) {
+	a, c := newTestApp(t)
+	c.login()
+	out := c.must("GET", "/api/php", nil, 200)
+	kinds := map[string]string{}
+	installed := map[string]bool{}
+	for _, e := range out["versions"].([]any)[0].(map[string]any)["extensions"].([]any) {
+		m := e.(map[string]any)
+		kinds[m["name"].(string)] = m["kind"].(string)
+		installed[m["name"].(string)] = m["installed"].(bool)
+	}
+	if kinds["sodium"] != "builtin" || !installed["sodium"] {
+		t.Errorf("sodium should be listed as built in and enabled: %v %v", kinds["sodium"], installed["sodium"])
+	}
+	if kinds["sourceguardian"] != "vendor" || installed["sourceguardian"] {
+		t.Errorf("sourceguardian should be offered, not installed")
+	}
+	c.must("POST", "/api/php/8.3/extensions", map[string]any{"name": "sodium", "install": false}, 400)
+	c.must("POST", "/api/php/8.3/extensions", map[string]any{"name": "sourceguardian", "install": true}, 200)
+	ini, err := a.Sys.ReadFile(sgIni("8.3"))
+	if err != nil || !strings.Contains(string(ini), "extension=ixed.8.3.lin") {
+		t.Errorf("sourceguardian ini wrong: %q %v", ini, err)
+	}
+	c.must("POST", "/api/php/8.3/extensions", map[string]any{"name": "sourceguardian", "install": false}, 200)
+	if a.Sys.Exists(sgIni("8.3")) {
+		t.Error("sourceguardian ini not removed")
+	}
+	c.must("POST", "/api/php/8.3/extensions", map[string]any{"name": "nonexistent", "install": true}, 400)
+	c.must("POST", "/api/php/8.3/extensions", map[string]any{"name": "redis; reboot", "install": true}, 400)
 }
 
 func TestFileJail(t *testing.T) {

@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # hostdeck installer for Ubuntu 22.04/24.04 and Debian 12.
-# Usage: sudo scripts/install.sh [--no-mail] [--no-dns] [--no-ftp] [--no-firewall] [--php-repo]
+# Usage: sudo scripts/install.sh [--no-mail] [--no-dns] [--no-ftp] [--no-apps] [--no-firewall] [--php-repo]
+#   --no-apps    skip Node.js and Python (only PHP, static and proxy sites)
 #   --php-repo   add the Ondrej Sury PHP repository so several PHP versions
 #                and more extensions can be installed side by side
 set -euo pipefail
 
-MAIL=1 DNS=1 FTP=1 FIREWALL=1 PHP_REPO=0
+MAIL=1 DNS=1 FTP=1 APPS=1 FIREWALL=1 PHP_REPO=0
 for arg in "$@"; do
   case "$arg" in
     --no-mail) MAIL=0 ;;
     --no-dns) DNS=0 ;;
     --no-ftp) FTP=0 ;;
+    --no-apps) APPS=0 ;;
     --no-firewall) FIREWALL=0 ;;
     --php-repo) PHP_REPO=1 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -49,7 +51,15 @@ if [ "$PHP_REPO" -eq 1 ]; then
   fi
   apt-get update -q
 fi
-PKGS="nginx mariadb-server certbot ssl-cert openssl php-fpm php-cli php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-opcache"
+if [ "$APPS" -eq 1 ] && ! command -v node >/dev/null; then
+  # Distribution Node.js is often years old; NodeSource carries the current LTS.
+  apt-get install -y -q ca-certificates curl gnupg
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/nodesource.gpg
+  echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+  apt-get update -q
+fi
+PKGS="curl tar nginx mariadb-server certbot ssl-cert openssl php-fpm php-cli php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-opcache"
+[ "$APPS" -eq 1 ] && PKGS="$PKGS nodejs python3 python3-venv python3-pip"
 [ "$FIREWALL" -eq 1 ] && PKGS="$PKGS ufw fail2ban"
 [ "$MAIL" -eq 1 ] && PKGS="$PKGS postfix dovecot-core dovecot-imapd dovecot-lmtpd"
 [ "$FTP" -eq 1 ] && PKGS="$PKGS pure-ftpd"

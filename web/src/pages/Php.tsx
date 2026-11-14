@@ -2,8 +2,8 @@ import { useState } from "react";
 import { api } from "../api";
 import { Empty, Loading, Page, useLoad, useToast } from "../ui";
 
-type Ext = { name: string; installed: boolean };
-type Data = { versions: { version: string; extensions: Ext[] }[] };
+type Ext = { name: string; installed: boolean; kind: "apt" | "builtin" | "vendor" };
+type Data = { versions: { version: string; extensions: Ext[]; modules: string[] }[] };
 
 export default function Php() {
   const { data, error, reload } = useLoad<Data>("/php");
@@ -54,15 +54,25 @@ export default function Php() {
             <div key={e.name} className={`card ext${e.installed ? " on" : ""}`}>
               <div>
                 <strong>{e.name}</strong>
-                <div className="muted small">{e.installed ? "Installed" : "Not installed"}</div>
+                <div className="muted small">
+                  {e.kind === "builtin" ? (e.installed ? "Built in, always on" : "Not in this PHP build")
+                    : e.kind === "vendor" ? (e.installed ? "Loader installed" : "Loader from sourceguardian.com")
+                    : e.installed ? "Installed" : "Not installed"}
+                </div>
               </div>
-              <button className={e.installed ? "ghost small" : "primary small"} disabled={busy !== ""} onClick={() => toggle(e)}>
-                {busy === e.name ? "Working…" : e.installed ? "Remove" : "Install"}
-              </button>
+              {e.kind !== "builtin" && (
+                <button className={e.installed ? "ghost small" : "primary small"} disabled={busy !== ""} onClick={() => toggle(e)}>
+                  {busy === e.name ? "Working…" : e.installed ? "Remove" : "Install"}
+                </button>
+              )}
             </div>
           ))}
         </div>
       )}
+      <details className="modules">
+        <summary>All {current.modules.length} modules PHP {current.version} has loaded</summary>
+        <p>{current.modules.map((m) => <span key={m} className="badge">{m}</span>)}</p>
+      </details>
     </Page>
   );
 }

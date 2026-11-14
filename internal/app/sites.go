@@ -19,7 +19,9 @@ type Site struct {
 	ID         int64    `json:"id"`
 	Domain     string   `json:"domain"`
 	Aliases    []string `json:"aliases"`
-	Type       string   `json:"type"` // php | static | proxy
+	Type       string   `json:"type"`  // php | static | proxy | node | python
+	Entry      string   `json:"entry"` // node: script path, python: WSGI "module:variable"
+	Port       int      `json:"port"`  // local port of a node/python app
 	PHP        string   `json:"php_version"`
 	Proxy      string   `json:"proxy_target"`
 	SSL        bool     `json:"ssl"`
@@ -46,7 +48,7 @@ var vhostTmpl = template.Must(template.New("vhost").Parse(`# Managed by hostdeck
         root {{.ACME}};
         default_type text/plain;
     }
-{{if eq .Type "proxy"}}
+{{if .Proxied}}
     location / {
         proxy_pass {{.Proxy}};
         proxy_http_version 1.1;
@@ -101,9 +103,14 @@ server {
 
 func renderVhost(s Site) (string, error) {
 	var buf bytes.Buffer
+	proxy := s.Proxy
+	if s.isApp() {
+		proxy = fmt.Sprintf("http://127.0.0.1:%d", s.Port)
+	}
 	err := vhostTmpl.Execute(&buf, map[string]any{
-		"Domain": s.Domain, "Names": strings.Join(append([]string{s.Domain}, s.Aliases...), " "),
-		"Type": s.Type, "PHP": s.PHP, "Proxy": s.Proxy, "SSL": s.SSL, "ForceHTTPS": s.ForceHTTPS,
+		"Proxied": s.Type == "proxy" || s.isApp(),
+		"Domain":  s.Domain, "Names": strings.Join(append([]string{s.Domain}, s.Aliases...), " "),
+		"Type": s.Type, "PHP": s.PHP, "Proxy": proxy, "SSL": s.SSL, "ForceHTTPS": s.ForceHTTPS,
 		"Sock": poolSock(s.ID), "Docroot": docroot(s.Domain), "ACME": acmeRoot, "Live": leLiveRoot,
 	})
 	return buf.String(), err
@@ -192,7 +199,7 @@ func (a *App) applyPool(s Site) error {
 }
 
 func (a *App) loadSites() ([]Site, error) {
-	rows, err := a.DB.Query(`SELECT id, domain, aliases, type, php, proxy, ssl, force_https, enabled, created FROM sites ORDER BY domain`)
+	rows, err := a.DB.Query(`SELECT id, domain, aliases, type, php, proxy, ssl, force_https, enabled, created, entry, port FROM sites ORDER BY domain`)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +208,7 @@ func (a *App) loadSites() ([]Site, error) {
 	for rows.Next() {
 		var s Site
 		var aliases string
-		if err := rows.Scan(&s.ID, &s.Domain, &aliases, &s.Type, &s.PHP, &s.Proxy, &s.SSL, &s.ForceHTTPS, &s.Enabled, &s.Created); err != nil {
+		if err := rows.Scan(&s.ID, &s.Domain, &aliases, &s.Type, &s.PHP, &s.Proxy, &s.SSL, &s.ForceHTTPS, &s.Enabled, &s.Created, &s.Entry, &s.Port); err != nil {
 			return nil, err
 		}
 		s.Aliases = strings.Fields(aliases)
@@ -228,6 +235,9 @@ func (a *App) loadSite(id int64) (Site, error) {
 // and rolls the file back if nginx rejects it.
 func (a *App) applySite(s Site) error {
 	if err := a.applyPool(s); err != nil {
+		return err
+	}
+	if err := a.applyApp(s); err != nil {
 		return err
 	}
 	path := nginxDir + "/" + s.Domain + ".conf"
@@ -263,6 +273,7 @@ type siteInput struct {
 	Type       string   `json:"type"`
 	PHP        string   `json:"php_version"`
 	Proxy      string   `json:"proxy_target"`
+	Entry      string   `json:"entry"`
 	ForceHTTPS bool     `json:"force_https"`
 	Enabled    *bool    `json:"enabled"`
 }
@@ -318,8 +329,35 @@ func (a *App) validateSite(in *siteInput, domain string, selfID int64) error {
 			return bad("proxy target must look like http://127.0.0.1:3000")
 		}
 		in.PHP = ""
+	case "node":
+		in.Entry = strings.TrimSpace(in.Entry)
+		if in.Entry == "" {
+			in.Entry = "app.js"
+		}
+		if !reNodeEntry.MatchString(in.Entry) || strings.Contains(in.Entry, "..") {
+			return bad("start file must be a .js, .mjs or .cjs path inside the app folder, such as app.js")
+		}
+		if a.runtimes()["node"] == "" {
+			return bad("Node.js is not installed on this server")
+		}
+		in.PHP, in.Proxy = "", ""
+	case "python":
+		in.Entry = strings.TrimSpace(in.Entry)
+		if in.Entry == "" {
+			in.Entry = "app:app"
+		}
+		if !rePyEntry.MatchString(in.Entry) {
+			return bad("WSGI entry must look like module:variable, such as app:app")
+		}
+		if a.runtimes()["python"] == "" {
+			return bad("Python 3 is not installed on this server")
+		}
+		in.PHP, in.Proxy = "", ""
 	default:
-		return bad("type must be php, static or proxy")
+		return bad("type must be php, static, proxy, node or python")
+	}
+	if in.Type != "node" && in.Type != "python" {
+		in.Entry = ""
 	}
 	return nil
 }
@@ -335,7 +373,7 @@ func (a *App) listSites(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(w, 200, map[string]any{"sites": sites, "php_versions": a.phpVersions()})
+	writeJSON(w, 200, map[string]any{"sites": sites, "php_versions": a.phpVersions(), "runtimes": a.runtimes()})
 	return nil
 }
 
@@ -353,7 +391,7 @@ func (a *App) createSite(w http.ResponseWriter, r *http.Request) error {
 	if err := a.validateSite(&in, domain, 0); err != nil {
 		return err
 	}
-	s := Site{Domain: domain, Aliases: in.Aliases, Type: in.Type, PHP: in.PHP, Proxy: in.Proxy, Enabled: true, Created: time.Now().Unix()}
+	s := Site{Domain: domain, Aliases: in.Aliases, Type: in.Type, PHP: in.PHP, Proxy: in.Proxy, Entry: in.Entry, Enabled: true, Created: time.Now().Unix()}
 
 	if err := a.Sys.MkdirAll(docroot(domain), 0o755); err != nil {
 		return err
@@ -365,7 +403,7 @@ func (a *App) createSite(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	index := docroot(domain) + "/index.html"
-	if s.Type != "proxy" && !a.Sys.Exists(index) && !a.Sys.Exists(docroot(domain)+"/index.php") {
+	if (s.Type == "php" || s.Type == "static") && !a.Sys.Exists(index) && !a.Sys.Exists(docroot(domain)+"/index.php") {
 		if err := a.Sys.WriteFile(index, []byte(strings.ReplaceAll(placeholderPage, "%DOMAIN%", domain)), 0o644); err != nil {
 			return err
 		}
@@ -374,15 +412,23 @@ func (a *App) createSite(w http.ResponseWriter, r *http.Request) error {
 		return bad("%v", err)
 	}
 
-	res, err := a.DB.Exec(`INSERT INTO sites(domain, aliases, type, php, proxy, created) VALUES(?,?,?,?,?,?)`,
-		s.Domain, strings.Join(s.Aliases, " "), s.Type, s.PHP, s.Proxy, s.Created)
+	res, err := a.DB.Exec(`INSERT INTO sites(domain, aliases, type, php, proxy, entry, created) VALUES(?,?,?,?,?,?,?)`,
+		s.Domain, strings.Join(s.Aliases, " "), s.Type, s.PHP, s.Proxy, s.Entry, s.Created)
 	if isUnique(err) {
 		return conflict("site %s already exists", domain)
 	} else if err != nil {
 		return err
 	}
 	s.ID, _ = res.LastInsertId()
-	if err := a.applySite(s); err != nil {
+	s.Port = appPortBase + int(s.ID)
+	_, _ = a.DB.Exec(`UPDATE sites SET port=? WHERE id=?`, s.Port, s.ID)
+	err = a.prepareApp(s)
+	if err == nil {
+		err = a.applySite(s)
+	}
+	if err != nil {
+		s.Enabled = false
+		_ = a.applyApp(s)
 		_, _ = a.DB.Exec(`DELETE FROM sites WHERE id=?`, s.ID)
 		return err
 	}
@@ -411,15 +457,21 @@ func (a *App) updateSite(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s := old
-	s.Aliases, s.Type, s.PHP, s.Proxy, s.ForceHTTPS = in.Aliases, in.Type, in.PHP, in.Proxy, in.ForceHTTPS
+	s.Aliases, s.Type, s.PHP, s.Proxy, s.Entry, s.ForceHTTPS = in.Aliases, in.Type, in.PHP, in.Proxy, in.Entry, in.ForceHTTPS
 	if in.Enabled != nil {
 		s.Enabled = *in.Enabled
+	}
+	if s.Port == 0 {
+		s.Port = appPortBase + int(s.ID)
+	}
+	if err := a.prepareApp(s); err != nil {
+		return err
 	}
 	if err := a.applySite(s); err != nil {
 		return err
 	}
-	if _, err := a.DB.Exec(`UPDATE sites SET aliases=?, type=?, php=?, proxy=?, force_https=?, enabled=? WHERE id=?`,
-		strings.Join(s.Aliases, " "), s.Type, s.PHP, s.Proxy, s.ForceHTTPS, s.Enabled, id); err != nil {
+	if _, err := a.DB.Exec(`UPDATE sites SET aliases=?, type=?, php=?, proxy=?, entry=?, port=?, force_https=?, enabled=? WHERE id=?`,
+		strings.Join(s.Aliases, " "), s.Type, s.PHP, s.Proxy, s.Entry, s.Port, s.ForceHTTPS, s.Enabled, id); err != nil {
 		return err
 	}
 	a.audit("site.updated", s.Domain)

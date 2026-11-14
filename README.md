@@ -5,11 +5,14 @@ one Go binary (about 13 MB on disk, under 20 MB of RAM when idle) with an
 embedded React UI and a SQLite database. No PHP, Perl or database server is
 needed for the panel itself.
 
+![hostdeck home screen](docs/images/home.png)
+
 | Area | What it manages | Backed by |
 | --- | --- | --- |
 | Websites | Domains, aliases, PHP / static / reverse-proxy sites, enable/disable | Nginx |
+| Apps | Node.js and Python (WSGI) sites as managed services, with npm/pip install, restart and logs | systemd, gunicorn |
 | HTTPS | Free certificates, HTTP→HTTPS redirect, automatic renewal | certbot (Let's Encrypt) |
-| PHP | A version per site, install/remove any extension apt offers | PHP-FPM, apt |
+| PHP | A version per site, install/remove any extension apt offers, plus sodium (built in) and the SourceGuardian loader | PHP-FPM, apt |
 | Databases | Databases, users, passwords, grants, sizes | MariaDB |
 | Files | Browse, upload, edit, rename, delete, download under `/var/www` | built in |
 | FTP | Accounts locked to one folder, TLS required | Pure-FTPd |
@@ -28,6 +31,8 @@ logged. The generated admin password is in `data/initial-password.txt`.
 
 ## Install on a server
 
+**Full step-by-step guide: [docs/INSTALL.md](docs/INSTALL.md).** In short:
+
 Use a fresh VPS. The installer reconfigures Nginx, MariaDB, Postfix, Dovecot,
 Pure-FTPd, BIND and the firewall.
 
@@ -39,7 +44,7 @@ make build
 sudo scripts/install.sh
 ```
 
-Options: `--no-mail`, `--no-dns`, `--no-ftp` (skip what you do not need; on a
+Options: `--no-mail`, `--no-dns`, `--no-ftp`, `--no-apps` (skip what you do not need; on a
 512 MB server skip mail), `--no-firewall`, and `--php-repo` (adds the Ondrej
 Sury repository for several PHP versions side by side and more extensions).
 
@@ -68,6 +73,9 @@ To use a real one, pass `-tls-cert` and `-tls-key` in
 - PHP sites are confined with `open_basedir` to their own folder, and
   `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen` are
   disabled. Edit `poolTmpl` in `internal/app/sites.go` if an app needs them.
+- Node.js and Python apps run as `www-data` in a systemd sandbox that can
+  only write inside their own site folder, capped at 512 MB of memory;
+  `npm` and `pip` never run as root.
 - The file manager resolves symlinks and refuses anything outside `/var/www`.
 - The installer enables ufw (only the needed ports, keeping your SSH port)
   and fail2ban, binds MariaDB to localhost, makes BIND authoritative-only,

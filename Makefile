@@ -4,7 +4,7 @@ build: web
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/hostdeck ./cmd/hostdeck
 
 web:
-	cd web && npm install --no-audit --no-fund && npm run build
+	cd web && npm install --no-audit --no-fund && npm run build && touch dist/.gitkeep
 
 test:
 	go vet ./... && go test ./...

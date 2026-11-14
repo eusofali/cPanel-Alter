@@ -2,6 +2,7 @@ package app
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -44,6 +45,16 @@ func OpenDB(path string) (*sql.DB, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
+	}
+	// Columns added after the first release; "duplicate column" means done.
+	for _, m := range []string{
+		`ALTER TABLE sites ADD COLUMN entry TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sites ADD COLUMN port INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			db.Close()
+			return nil, err
+		}
 	}
 	return db, nil
 }

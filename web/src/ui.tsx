@@ -1,5 +1,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { Icon } from "./icons";
+import { routeInfo } from "./tools";
 
 export function fmtBytes(n: number): string {
   if (!n) return "0 B";
@@ -131,13 +133,22 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
-export function Page({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
+export function Page({ title, subtitle, actions, children, icon }: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode; icon?: string }) {
+  const info = routeInfo(location.hash.slice(2));
   return (
     <section className="page">
+      <nav className="breadcrumb" aria-label="Breadcrumb">
+        <a href="#/home">Tools</a>
+        {info && <><span aria-hidden="true">›</span><span>{info.group}</span></>}
+        <span aria-hidden="true">›</span><span aria-current="page">{title}</span>
+      </nav>
       <div className="page-head">
-        <div>
-          <h1>{title}</h1>
-          {subtitle && <p className="muted">{subtitle}</p>}
+        <div className="page-title">
+          <span className={`tile-icon ${info?.tone || "slate"}`}><Icon name={icon || info?.icon || "home"} size={22} /></span>
+          <div>
+            <h1>{title}</h1>
+            {subtitle && <p className="muted">{subtitle}</p>}
+          </div>
         </div>
         <div className="actions">{actions}</div>
       </div>

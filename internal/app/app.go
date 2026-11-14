@@ -124,6 +124,9 @@ func (a *App) Handler() http.Handler {
 	api("DELETE /api/sites/{id}", a.deleteSite)
 	api("POST /api/sites/{id}/ssl", a.issueSSL)
 	api("DELETE /api/sites/{id}/ssl", a.disableSSL)
+	api("POST /api/sites/{id}/app/restart", a.restartApp)
+	api("POST /api/sites/{id}/app/install", a.installAppDeps)
+	api("GET /api/sites/{id}/app/logs", a.appLogs)
 
 	api("GET /api/php", a.listPHP)
 	api("POST /api/php/{version}/extensions", a.setPHPExtension)
